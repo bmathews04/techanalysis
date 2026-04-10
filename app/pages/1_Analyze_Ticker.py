@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from datetime import datetime
 from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
@@ -37,79 +38,100 @@ st.set_page_config(
 st.title("Analyze Ticker")
 st.caption("Single-ticker technical analysis with educational interpretation.")
 
+if "analysis_result" not in st.session_state:
+    st.session_state["analysis_result"] = None
+
+if "analysis_meta" not in st.session_state:
+    st.session_state["analysis_meta"] = {}
+
 with st.sidebar:
     st.header("Inputs")
 
-    ticker = st.text_input(
-        "Ticker",
-        value=st.session_state.get("ticker", DEFAULT_TICKER),
-        help="Enter a single stock or ETF ticker.",
-    )
+    with st.form("analysis_form"):
+        ticker = st.text_input(
+            "Ticker",
+            value=st.session_state.get("ticker", DEFAULT_TICKER),
+            help="Enter a single stock or ETF ticker.",
+        )
 
-    period = st.selectbox(
-        "Period",
-        options=SUPPORTED_PERIODS,
-        index=SUPPORTED_PERIODS.index(
-            st.session_state.get("period", DEFAULT_PERIOD)
-            if st.session_state.get("period", DEFAULT_PERIOD) in SUPPORTED_PERIODS
-            else DEFAULT_PERIOD
-        ),
-    )
+        period = st.selectbox(
+            "Period",
+            options=SUPPORTED_PERIODS,
+            index=SUPPORTED_PERIODS.index(
+                st.session_state.get("period", DEFAULT_PERIOD)
+                if st.session_state.get("period", DEFAULT_PERIOD) in SUPPORTED_PERIODS
+                else DEFAULT_PERIOD
+            ),
+        )
 
-    interval = st.selectbox(
-        "Interval",
-        options=SUPPORTED_INTERVALS,
-        index=SUPPORTED_INTERVALS.index(
-            st.session_state.get("interval", DEFAULT_INTERVAL)
-            if st.session_state.get("interval", DEFAULT_INTERVAL) in SUPPORTED_INTERVALS
-            else DEFAULT_INTERVAL
-        ),
-    )
+        interval = st.selectbox(
+            "Interval",
+            options=SUPPORTED_INTERVALS,
+            index=SUPPORTED_INTERVALS.index(
+                st.session_state.get("interval", DEFAULT_INTERVAL)
+                if st.session_state.get("interval", DEFAULT_INTERVAL) in SUPPORTED_INTERVALS
+                else DEFAULT_INTERVAL
+            ),
+        )
 
-    benchmark = st.text_input(
-        "Benchmark",
-        value=st.session_state.get("benchmark", "SPY"),
-        help="Used for relative strength comparison.",
-    )
+        benchmark = st.text_input(
+            "Benchmark",
+            value=st.session_state.get("benchmark", "SPY"),
+            help="Used for relative strength comparison.",
+        )
 
-    st.subheader("Chart overlays")
-    show_bollinger = st.checkbox("Show Bollinger Bands", value=True)
-    show_sma = st.checkbox("Show SMAs", value=True)
-    show_ema = st.checkbox("Show EMAs", value=False)
+        st.subheader("Chart overlays")
+        show_bollinger = st.checkbox("Show Bollinger Bands", value=False)
+        show_sma = st.checkbox("Show SMAs", value=True)
+        show_ema = st.checkbox("Show EMAs", value=False)
 
-    run_analysis = st.button("Run analysis", type="primary", use_container_width=True)
+        run_analysis = st.form_submit_button(
+            "Refresh data",
+            type="primary",
+            use_container_width=True,
+        )
 
 if run_analysis:
     st.session_state["ticker"] = ticker
     st.session_state["period"] = period
     st.session_state["interval"] = interval
     st.session_state["benchmark"] = benchmark
+    st.session_state["show_bollinger"] = show_bollinger
+    st.session_state["show_sma"] = show_sma
+    st.session_state["show_ema"] = show_ema
 
-if "analysis_ran" not in st.session_state:
-    st.session_state["analysis_ran"] = False
+    try:
+        with st.spinner("Running technical analysis..."):
+            result = build_full_analysis(
+                ticker=ticker,
+                period=period,
+                interval=interval,
+                benchmark=benchmark,
+            )
 
-if run_analysis:
-    st.session_state["analysis_ran"] = True
+        st.session_state["analysis_result"] = result
+        st.session_state["analysis_meta"] = {
+            "ran_at": datetime.now().strftime("%Y-%m-%d %I:%M:%S %p"),
+            "ticker": ticker,
+            "period": period,
+            "interval": interval,
+            "benchmark": benchmark,
+        }
+    except Exception as exc:
+        st.error(f"Analysis failed: {exc}")
+        st.stop()
 
-if not st.session_state["analysis_ran"]:
-    st.info("Enter a ticker in the sidebar and click **Run analysis** to begin.")
+result = st.session_state.get("analysis_result")
+
+if result is None:
+    st.info("Enter a ticker in the sidebar and click **Refresh data** to begin.")
     st.stop()
 
-try:
-    with st.spinner("Running technical analysis..."):
-        result = build_full_analysis(
-            ticker=st.session_state["ticker"],
-            period=st.session_state["period"],
-            interval=st.session_state["interval"],
-            benchmark=st.session_state["benchmark"],
-        )
-except Exception as exc:
-    st.error(f"Analysis failed: {exc}")
-    st.stop()
+meta = st.session_state.get("analysis_meta", {})
+latest_bar = result.data.index[-1].strftime("%Y-%m-%d")
 
-# Header summary
-top1, top2, top3, top4, top5, top6 = st.columns(6)
-
+# Primary summary row
+top1, top2, top3, top4 = st.columns(4)
 with top1:
     st.metric("Ticker", result.ticker)
 with top2:
@@ -117,11 +139,38 @@ with top2:
 with top3:
     st.metric("Trend strength", format_score(result.scores.trend))
 with top4:
-    st.metric("Signal agreement", result.agreement.label)
-with top5:
-    st.metric("Participation fit", result.guidance.posture)
-with top6:
     st.metric("Guidance confidence", format_confidence_10(result.guidance.confidence))
+
+# Secondary summary row
+sub1, sub2, sub3, sub4 = st.columns(4)
+with sub1:
+    st.metric("Signal agreement", result.agreement.label)
+with sub2:
+    st.metric("Participation fit", result.guidance.posture)
+with sub3:
+    st.metric("Extension", format_score(result.extension.score))
+with sub4:
+    latest = result.data.iloc[-1]
+    rel20 = latest.get("Relative_Performance_20d_pct")
+    rel20_text = f"{rel20:.2f}%" if rel20 is not None and rel20 == rel20 else "N/A"
+    st.metric(f"20D vs {result.benchmark}", rel20_text)
+
+st.divider()
+
+# Freshness / source bar
+fresh1, fresh2, fresh3, fresh4 = st.columns(4)
+with fresh1:
+    st.markdown("**Latest bar date**")
+    st.write(latest_bar)
+with fresh2:
+    st.markdown("**Last analysis run**")
+    st.write(meta.get("ran_at", "N/A"))
+with fresh3:
+    st.markdown("**Data source**")
+    st.write("Yahoo Finance via yfinance")
+with fresh4:
+    st.markdown("**Benchmark**")
+    st.write(result.benchmark)
 
 st.divider()
 
@@ -133,14 +182,11 @@ with risk1:
 
 with risk2:
     st.subheader("Extension")
-    st.metric("Extension score", format_score(result.extension.score))
     st.caption(result.extension.label)
     st.write(result.extension.reason)
 
 with risk3:
     st.subheader("Relative strength")
-    latest = result.data.iloc[-1]
-    rel20 = latest.get("Relative_Performance_20d_pct")
     rel60 = latest.get("Relative_Performance_60d_pct")
     if rel20 is not None and rel20 == rel20:
         st.markdown(f"**20D vs {result.benchmark}:** {rel20:.2f}%")
@@ -153,7 +199,7 @@ with risk3:
 
 st.divider()
 
-summary_left, summary_right = st.columns([1.7, 1])
+summary_left, summary_right = st.columns([1.6, 1])
 
 with summary_left:
     st.subheader("Executive summary")
@@ -185,14 +231,13 @@ with summary_right:
 
 st.divider()
 
-# Main chart
 st.subheader("Price chart")
 main_fig = build_main_price_chart(
     result.data,
     ticker=result.ticker,
-    show_bollinger=show_bollinger,
-    show_sma=show_sma,
-    show_ema=show_ema,
+    show_bollinger=st.session_state.get("show_bollinger", False),
+    show_sma=st.session_state.get("show_sma", True),
+    show_ema=st.session_state.get("show_ema", False),
 )
 main_fig = add_thesis_annotations(
     main_fig,
@@ -205,7 +250,6 @@ st.plotly_chart(main_fig, use_container_width=True)
 
 st.divider()
 
-# Scorecards
 st.subheader("Technical scorecard")
 s1, s2, s3, s4, s5 = st.columns(5)
 with s1:
@@ -244,18 +288,24 @@ with tabs[1]:
     st.subheader("Momentum evidence")
     for item in result.evidence.momentum:
         st.markdown(f"- {item}")
-    st.plotly_chart(build_rsi_chart(result.data), use_container_width=True)
-    st.plotly_chart(build_macd_chart(result.data), use_container_width=True)
+
+    chart_tabs = st.tabs(["RSI", "MACD"])
+    with chart_tabs[0]:
+        st.plotly_chart(build_rsi_chart(result.data), use_container_width=True)
+    with chart_tabs[1]:
+        st.plotly_chart(build_macd_chart(result.data), use_container_width=True)
 
 with tabs[2]:
     st.subheader("Volatility evidence")
     for item in result.evidence.volatility:
         st.markdown(f"- {item}")
+
     latest = result.data.iloc[-1]
     if latest.get("Squeeze_On") is True:
         st.info("Squeeze condition detected: volatility is compressed enough to suggest a larger move may be approaching.")
     elif latest.get("Volatility_Compression") is True:
         st.info("Volatility compression is present, though not at the strongest squeeze threshold.")
+
     st.plotly_chart(build_atr_chart(result.data), use_container_width=True)
 
 with tabs[3]:
@@ -352,8 +402,6 @@ with tabs[8]:
         if col in result.data.columns
     ]
     st.dataframe(result.data[preview_cols].tail(20), use_container_width=True)
-
-st.divider()
 
 with st.expander("Methodology notes"):
     st.markdown(
