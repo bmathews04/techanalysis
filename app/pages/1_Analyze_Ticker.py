@@ -9,6 +9,7 @@ from src.config.settings import (
     SUPPORTED_INTERVALS,
     SUPPORTED_PERIODS,
 )
+from src.charts.annotations import add_thesis_annotations
 from src.charts.main_chart import build_main_price_chart
 from src.charts.subcharts import (
     build_atr_chart,
@@ -17,6 +18,7 @@ from src.charts.subcharts import (
     build_volume_chart,
 )
 from src.pipeline.build_analysis import build_full_analysis
+from src.utils.formatting import format_confidence_10, format_score
 
 
 st.set_page_config(
@@ -57,6 +59,12 @@ with st.sidebar:
         ),
     )
 
+    benchmark = st.text_input(
+        "Benchmark",
+        value=st.session_state.get("benchmark", "SPY"),
+        help="Used for relative strength comparison.",
+    )
+
     st.subheader("Chart overlays")
     show_bollinger = st.checkbox("Show Bollinger Bands", value=True)
     show_sma = st.checkbox("Show SMAs", value=True)
@@ -68,6 +76,7 @@ if run_analysis:
     st.session_state["ticker"] = ticker
     st.session_state["period"] = period
     st.session_state["interval"] = interval
+    st.session_state["benchmark"] = benchmark
 
 if "analysis_ran" not in st.session_state:
     st.session_state["analysis_ran"] = False
@@ -85,6 +94,7 @@ try:
             ticker=st.session_state["ticker"],
             period=st.session_state["period"],
             interval=st.session_state["interval"],
+            benchmark=st.session_state["benchmark"],
         )
 except Exception as exc:
     st.error(f"Analysis failed: {exc}")
@@ -98,13 +108,41 @@ with top1:
 with top2:
     st.metric("Market state", result.trend.label)
 with top3:
-    st.metric("Trend strength", f"{result.scores.trend}/100")
+    st.metric("Trend strength", format_score(result.scores.trend))
 with top4:
     st.metric("Signal agreement", result.agreement.label)
 with top5:
     st.metric("Participation fit", result.guidance.posture)
 with top6:
-    st.metric("Guidance confidence", f"{result.guidance.confidence:.1f}/10")
+    st.metric("Guidance confidence", format_confidence_10(result.guidance.confidence))
+
+st.divider()
+
+risk1, risk2, risk3 = st.columns(3)
+
+with risk1:
+    st.subheader("Invalidation framework")
+    st.write(result.risk.invalidation_level)
+
+with risk2:
+    st.subheader("Extension")
+    st.metric("Extension score", format_score(result.extension.score))
+    st.caption(result.extension.label)
+    st.write(result.extension.reason)
+
+with risk3:
+    st.subheader("Relative strength")
+    latest = result.data.iloc[-1]
+    rel20 = latest.get("Relative_Performance_20d_pct")
+    rel60 = latest.get("Relative_Performance_60d_pct")
+    if rel20 is not None and rel20 == rel20:
+        st.markdown(f"**20D vs {result.benchmark}:** {rel20:.2f}%")
+    if rel60 is not None and rel60 == rel60:
+        st.markdown(f"**60D vs {result.benchmark}:** {rel60:.2f}%")
+    if latest.get("RS_Above_20") is True:
+        st.markdown("Relative strength is above its 20-period average.")
+    if latest.get("RS_Above_50") is True:
+        st.markdown("Relative strength is above its 50-period average.")
 
 st.divider()
 
@@ -125,8 +163,14 @@ with summary_right:
         st.markdown(f"- {item}")
 
     st.subheader("Caution flags")
-    if result.guidance.caution_flags or result.evidence.risk_flags:
-        merged_flags = list(dict.fromkeys(result.guidance.caution_flags + result.evidence.risk_flags))
+    merged_flags = list(
+        dict.fromkeys(
+            result.guidance.caution_flags
+            + result.evidence.risk_flags
+            + result.risk.key_risks
+        )
+    )
+    if merged_flags:
         for flag in merged_flags:
             st.markdown(f"- {flag}")
     else:
@@ -142,6 +186,13 @@ main_fig = build_main_price_chart(
     show_bollinger=show_bollinger,
     show_sma=show_sma,
     show_ema=show_ema,
+)
+main_fig = add_thesis_annotations(
+    main_fig,
+    result.data,
+    risk=result.risk,
+    trend_label=result.trend.label,
+    posture=result.guidance.posture,
 )
 st.plotly_chart(main_fig, use_container_width=True)
 
@@ -163,7 +214,6 @@ with s5:
 
 st.divider()
 
-# Evidence tabs
 tabs = st.tabs(
     [
         "Trend",
@@ -172,6 +222,7 @@ tabs = st.tabs(
         "Volume",
         "Structure",
         "Scenarios",
+        "Risk framework",
         "Recent changes",
         "Data snapshot",
     ]
@@ -193,6 +244,11 @@ with tabs[2]:
     st.subheader("Volatility evidence")
     for item in result.evidence.volatility:
         st.markdown(f"- {item}")
+    latest = result.data.iloc[-1]
+    if latest.get("Squeeze_On") is True:
+        st.info("Squeeze condition detected: volatility is compressed enough to suggest a larger move may be approaching.")
+    elif latest.get("Volatility_Compression") is True:
+        st.info("Volatility compression is present, though not at the strongest squeeze threshold.")
     st.plotly_chart(build_atr_chart(result.data), use_container_width=True)
 
 with tabs[3]:
@@ -236,6 +292,18 @@ with tabs[5]:
             st.markdown(f"- {item}")
 
 with tabs[6]:
+    st.subheader("Risk framework")
+    st.markdown(f"**Invalidation level:** {result.risk.invalidation_level}")
+
+    st.markdown("**Key risks:**")
+    for item in result.risk.key_risks or ["No major risk flags identified by the current rules."]:
+        st.markdown(f"- {item}")
+
+    st.markdown("**Thesis breakers:**")
+    for item in result.risk.thesis_breakers:
+        st.markdown(f"- {item}")
+
+with tabs[7]:
     st.subheader("Recent technical changes")
     if result.recent_changes:
         for item in result.recent_changes:
@@ -243,7 +311,7 @@ with tabs[6]:
     else:
         st.markdown("No notable recent technical changes were detected by the current rules.")
 
-with tabs[7]:
+with tabs[8]:
     st.subheader("Latest data snapshot")
     preview_cols = [
         col
@@ -267,6 +335,12 @@ with tabs[7]:
             "Relative_Volume_20",
             "Rolling_Resistance_20",
             "Rolling_Support_20",
+            "Relative_Performance_20d_pct",
+            "Relative_Performance_60d_pct",
+            "Squeeze_On",
+            "Volatility_Compression",
+            "Extension_vs_SMA20_pct",
+            "Extension_vs_SMA50_pct",
         ]
         if col in result.data.columns
     ]
@@ -282,7 +356,9 @@ This page uses a rule-based educational framework built from:
 - momentum indicators,
 - volatility measures,
 - volume confirmation,
-- and price structure context.
+- price structure context,
+- relative strength vs a benchmark,
+- and extension/compression diagnostics.
 
 The goal is not to predict the future with certainty. The goal is to translate the current technical condition into a readable framework for understanding what the chart is doing now.
 """
