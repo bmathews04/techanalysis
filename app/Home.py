@@ -114,5 +114,5 @@ The product should feel less like a scanner and more like a disciplined technica
 """
     )
 
-st.page_link("app/pages/1_Analyze_Ticker.py", label="Go to Analyze Ticker", icon="📊")
-st.page_link("app/pages/2_Methodology.py", label="Go to Methodology", icon="📘")
+st.page_link("pages/1_Analyze_Ticker.py", label="Go to Analyze Ticker", icon="📊")
+st.page_link("pages/2_Methodology.py", label="Go to Methodology", icon="📘")
