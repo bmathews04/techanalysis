@@ -16,7 +16,7 @@ import plotly.graph_objects as go
 def build_main_price_chart(
     df: pd.DataFrame,
     ticker: str,
-    show_bollinger: bool = True,
+    show_bollinger: bool = False,
     show_sma: bool = True,
     show_ema: bool = False,
 ) -> go.Figure:
@@ -66,7 +66,8 @@ def build_main_price_chart(
                         y=df[col],
                         mode="lines",
                         name=label,
-                        line={"dash": "dot", "width": 1.2},
+                        line={"dash": "dot", "width": 1.1},
+                        opacity=0.75,
                     )
                 )
 
@@ -84,7 +85,7 @@ def build_main_price_chart(
                         mode="lines",
                         name=label,
                         line={"width": 1.0, "dash": "dash"},
-                        opacity=0.7,
+                        opacity=0.55,
                     )
                 )
 
@@ -97,6 +98,7 @@ def build_main_price_chart(
             line_dash="dot",
             annotation_text=f"Resistance {resistance:.2f}",
             annotation_position="top left",
+            opacity=0.55,
         )
 
     if "Rolling_Support_20" in df.columns and pd.notna(latest.get("Rolling_Support_20")):
@@ -106,6 +108,7 @@ def build_main_price_chart(
             line_dash="dot",
             annotation_text=f"Support {support:.2f}",
             annotation_position="bottom left",
+            opacity=0.55,
         )
 
     if "SMA_50" in df.columns and pd.notna(latest.get("SMA_50")):
@@ -115,7 +118,7 @@ def build_main_price_chart(
             line_dash="dash",
             annotation_text=f"SMA 50 {sma50:.2f}",
             annotation_position="right",
-            opacity=0.45,
+            opacity=0.35,
         )
 
     fig.update_layout(
@@ -125,7 +128,7 @@ def build_main_price_chart(
         xaxis_rangeslider_visible=False,
         legend_title="Overlays",
         margin={"l": 20, "r": 20, "t": 60, "b": 20},
-        height=700,
+        height=620,
         hovermode="x unified",
     )
 
