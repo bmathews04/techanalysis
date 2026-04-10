@@ -16,7 +16,7 @@ class DummyFetchResult:
 def make_sample_data(rows: int = 260) -> pd.DataFrame:
     dates = pd.date_range("2024-01-01", periods=rows, freq="D")
 
-    close = pd.Series(range(100, 100 + rows), dtype=float)
+    close = pd.Series(range(100, 100 + rows), index=dates, dtype=float)
     df = pd.DataFrame(
         {
             "Open": close - 1.0,
@@ -43,9 +43,10 @@ def test_build_full_analysis_returns_expected_shape(monkeypatch) -> None:
 
     monkeypatch.setattr("src.pipeline.build_analysis.fetch_ohlcv", mock_fetch_ohlcv)
 
-    result = build_full_analysis("AAPL", period="1y", interval="1d")
+    result = build_full_analysis("AAPL", period="1y", interval="1d", benchmark="SPY")
 
     assert result.ticker == "AAPL"
+    assert result.benchmark == "SPY"
     assert result.validation.is_valid is True
     assert isinstance(result.data, pd.DataFrame)
     assert len(result.data) == len(sample_df)
@@ -66,7 +67,7 @@ def test_build_full_analysis_contains_core_outputs(monkeypatch) -> None:
 
     monkeypatch.setattr("src.pipeline.build_analysis.fetch_ohlcv", mock_fetch_ohlcv)
 
-    result = build_full_analysis("MSFT", period="1y", interval="1d")
+    result = build_full_analysis("MSFT", period="1y", interval="1d", benchmark="SPY")
 
     assert result.trend.label != ""
     assert 0 <= result.scores.trend <= 100
@@ -75,3 +76,5 @@ def test_build_full_analysis_contains_core_outputs(monkeypatch) -> None:
     assert result.scenarios.bull.title == "Bull case"
     assert isinstance(result.recent_changes, list)
     assert isinstance(result.evidence.trend, list)
+    assert result.extension.label != ""
+    assert result.risk.invalidation_level != ""
