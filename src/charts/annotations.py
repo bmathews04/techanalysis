@@ -29,23 +29,14 @@ def add_thesis_annotations(
     close = float(latest["Close"])
 
     out.add_annotation(
-        x=x_last,
-        y=close,
-        text=f"Trend: {trend_label}",
-        showarrow=True,
-        arrowhead=1,
-        yshift=35,
-    )
-
-    out.add_annotation(
         xref="paper",
         yref="paper",
         x=0.01,
         y=0.98,
-        text=f"Posture: {posture}",
+        text=f"Trend: {trend_label}<br>Posture: {posture}",
         showarrow=False,
-        borderpad=4,
-        bgcolor="rgba(30,30,30,0.55)",
+        borderpad=5,
+        bgcolor="rgba(30,30,30,0.60)",
     )
 
     if "Rolling_Support_20" in df.columns and pd.notna(latest.get("Rolling_Support_20")):
@@ -56,7 +47,7 @@ def add_thesis_annotations(
             text="Support watch",
             showarrow=True,
             arrowhead=1,
-            yshift=-28,
+            yshift=-24,
         )
 
     if "Rolling_Resistance_20" in df.columns and pd.notna(latest.get("Rolling_Resistance_20")):
@@ -67,7 +58,7 @@ def add_thesis_annotations(
             text="Resistance watch",
             showarrow=True,
             arrowhead=1,
-            yshift=28,
+            yshift=24,
         )
 
     out.update_layout(
