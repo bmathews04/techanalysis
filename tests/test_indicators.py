@@ -3,7 +3,9 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from src.indicators.advanced_volatility import add_advanced_volatility_features
 from src.indicators.momentum import add_momentum_features
+from src.indicators.relative_strength import add_relative_strength_features
 from src.indicators.structure import add_structure_features
 from src.indicators.trend import add_trend_features
 from src.indicators.volatility import add_volatility_features
@@ -18,6 +20,29 @@ def make_sample_ohlcv(rows: int = 260) -> pd.DataFrame:
     high = close + 1.0
     low = close - 1.0
     volume = np.linspace(1_000_000, 2_000_000, rows)
+
+    df = pd.DataFrame(
+        {
+            "Open": open_,
+            "High": high,
+            "Low": low,
+            "Close": close,
+            "Volume": volume,
+        },
+        index=dates,
+    )
+    df.index.name = "Date"
+    return df
+
+
+def make_benchmark_ohlcv(rows: int = 260) -> pd.DataFrame:
+    dates = pd.date_range("2024-01-01", periods=rows, freq="D")
+
+    close = np.linspace(100, 130, rows)
+    open_ = close - 0.4
+    high = close + 0.9
+    low = close - 0.9
+    volume = np.linspace(900_000, 1_500_000, rows)
 
     df = pd.DataFrame(
         {
@@ -120,8 +145,45 @@ def test_structure_features_add_expected_columns() -> None:
     assert expected.issubset(set(out.columns))
 
 
+def test_relative_strength_features_add_expected_columns() -> None:
+    df = make_sample_ohlcv()
+    bench = make_benchmark_ohlcv()
+    out = add_relative_strength_features(df, benchmark_df=bench)
+
+    expected = {
+        "Benchmark_Close",
+        "RS_Ratio",
+        "RS_Ratio_SMA_20",
+        "RS_Ratio_SMA_50",
+        "Relative_Performance_20d_pct",
+        "Relative_Performance_60d_pct",
+    }
+
+    assert expected.issubset(set(out.columns))
+
+
+def test_advanced_volatility_features_add_expected_columns() -> None:
+    df = make_sample_ohlcv()
+    df = add_trend_features(df)
+    df = add_volatility_features(df)
+    out = add_advanced_volatility_features(df)
+
+    expected = {
+        "BB_width_percentile_approx",
+        "ATR_percentile_approx",
+        "Squeeze_On",
+        "Volatility_Compression",
+        "Extension_vs_SMA20_pct",
+        "Extension_vs_SMA50_pct",
+        "BB_Position_pct",
+    }
+
+    assert expected.issubset(set(out.columns))
+
+
 def test_indicator_pipeline_preserves_row_count() -> None:
     df = make_sample_ohlcv()
+    bench = make_benchmark_ohlcv()
     original_len = len(df)
 
     out = add_trend_features(df)
@@ -129,5 +191,7 @@ def test_indicator_pipeline_preserves_row_count() -> None:
     out = add_volatility_features(out)
     out = add_volume_features(out)
     out = add_structure_features(out)
+    out = add_relative_strength_features(out, benchmark_df=bench)
+    out = add_advanced_volatility_features(out)
 
     assert len(out) == original_len
