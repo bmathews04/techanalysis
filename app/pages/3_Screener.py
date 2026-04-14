@@ -18,9 +18,10 @@ from src.config.settings import (
 )
 from src.screener.screener import (
     get_sp500_tickers,
+    merge_screen_results,
     parse_tickers,
     run_market_screen,
-    slice_ticker_batch,
+    split_into_batches,
 )
 
 st.set_page_config(
@@ -184,17 +185,30 @@ with st.sidebar:
         batch_size = st.selectbox(
             "Batch size",
             options=[25, 50, 75, 100],
-            index=3,
+            index=2,
             help="Smaller batches are slower overall but more reliable against Yahoo rate limits.",
         )
 
-        batch_number = st.number_input(
-            "Batch number",
-            min_value=1,
-            value=1,
-            step=1,
-            help="Batch 1 screens the first chunk, batch 2 the next chunk, and so on.",
+        run_mode = st.selectbox(
+            "Run mode",
+            options=[
+                "Run current batch",
+                "Run all batches",
+            ],
+            index=1,
+            help="Run all batches will process the full ticker list sequentially and combine the results.",
         )
+
+        if run_mode == "Run current batch":
+            batch_number = st.number_input(
+                "Batch number",
+                min_value=1,
+                value=1,
+                step=1,
+                help="Used only when running a single batch.",
+            )
+        else:
+            batch_number = 1
 
         per_ticker_pause_seconds = st.selectbox(
             "Pause per ticker (seconds)",
@@ -202,7 +216,7 @@ with st.sidebar:
             index=1,
             help="Higher pause reduces the chance of Yahoo rate limiting.",
         )
-        
+
         submitted = st.form_submit_button(
             "Run screen",
             type="primary",
@@ -231,43 +245,79 @@ if not tickers:
     st.warning("No valid tickers were provided.")
     st.stop()
 
-batch_tickers, start_idx, end_idx, total_tickers = slice_ticker_batch(
-    tickers=tickers,
-    batch_size=batch_size,
-    batch_number=int(batch_number),
-)
+all_batches = split_into_batches(tickers, batch_size=batch_size)
+total_tickers = len(tickers)
+total_batches = len(all_batches)
 
-if not batch_tickers:
-    st.warning(
-        f"Batch {int(batch_number)} is out of range. "
-        f"You only have {total_tickers} tickers with batch size {batch_size}."
-    )
-    st.stop()
+screen_result = None
+screened_count = 0
+current_batch_label = ""
 
-total_batches = (total_tickers + batch_size - 1) // batch_size
+if run_mode == "Run current batch":
+    batch_number = int(batch_number)
 
-if total_tickers > batch_size:
+    if batch_number < 1 or batch_number > total_batches:
+        st.warning(
+            f"Batch {batch_number} is out of range. "
+            f"Valid batch numbers are 1 to {total_batches}."
+        )
+        st.stop()
+
+    batch_tickers = all_batches[batch_number - 1]
+    screened_count = len(batch_tickers)
+    current_batch_label = f"Batch {batch_number} of {total_batches}"
+
     st.info(
-        f"Screening batch {int(batch_number)} of {total_batches}: "
-        f"tickers {start_idx + 1} to {end_idx} out of {total_tickers} total."
+        f"Screening {current_batch_label}: "
+        f"{len(batch_tickers)} tickers."
     )
 
-tickers = batch_tickers
+    with st.spinner(
+        f"Screening {current_batch_label} "
+        f"({len(batch_tickers)} tickers)..."
+    ):
+        screen_result = run_market_screen(
+            tickers=batch_tickers,
+            period=period,
+            interval=interval,
+            benchmark=benchmark,
+            per_ticker_pause_seconds=float(per_ticker_pause_seconds),
+        )
 
-with st.spinner(
-    f"Screening {len(tickers)} tickers... this can take a while and may hit Yahoo rate limits."
-):
-    screen_result = run_market_screen(
-        tickers=tickers,
-        period=period,
-        interval=interval,
-        benchmark=benchmark,
-        per_ticker_pause_seconds=float(per_ticker_pause_seconds),
+else:
+    screened_count = total_tickers
+    current_batch_label = f"All {total_batches} batches"
+
+    progress_text = st.empty()
+    progress_bar = st.progress(0.0)
+    batch_results: list = []
+
+    for idx, batch_tickers in enumerate(all_batches, start=1):
+        progress_text.info(
+            f"Running batch {idx} of {total_batches} "
+            f"({len(batch_tickers)} tickers)..."
+        )
+
+        batch_result = run_market_screen(
+            tickers=batch_tickers,
+            period=period,
+            interval=interval,
+            benchmark=benchmark,
+            per_ticker_pause_seconds=float(per_ticker_pause_seconds),
+        )
+        batch_results.append(batch_result)
+
+        progress_bar.progress(idx / total_batches)
+
+    progress_text.success(
+        f"Completed all {total_batches} batches across {total_tickers} tickers."
     )
+
+    screen_result = merge_screen_results(batch_results)
 
 top1, top2, top3, top4, top5 = st.columns(5)
 with top1:
-    st.metric("Input tickers", len(tickers))
+    st.metric("Screened tickers", screened_count)
 with top2:
     st.metric("Strong bullish", len(screen_result.strong_bullish))
 with top3:
@@ -277,7 +327,7 @@ with top4:
 with top5:
     st.metric("Bearish", len(screen_result.bearish))
 
-if total_tickers > batch_size:
+if run_mode == "Run current batch" and total_tickers > batch_size:
     prev_col, mid_col, next_col = st.columns(3)
 
     with prev_col:
@@ -290,6 +340,8 @@ if total_tickers > batch_size:
     with next_col:
         if int(batch_number) < total_batches:
             st.caption(f"Next batch: {int(batch_number) + 1}")
+else:
+    st.caption(f"Processed {current_batch_label} from {total_tickers} total tickers.")
 
 st.divider()
 
