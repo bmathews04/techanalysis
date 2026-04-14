@@ -1,13 +1,3 @@
-"""
-Market screener utilities.
-
-Primary responsibilities:
-- parse ticker lists
-- fetch preset universes like the S&P 500
-- run the existing single-ticker pipeline across many tickers
-- classify each ticker into bullish / bearish buckets
-"""
-
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -15,6 +5,7 @@ from typing import Iterable
 
 import pandas as pd
 
+from src.data.sp500_tickers import SP500_TICKERS
 from src.pipeline.build_analysis import AnalysisResult, build_full_analysis
 
 
@@ -43,10 +34,6 @@ class ScreenResult:
 
 
 def parse_tickers(raw_text: str) -> list[str]:
-    """
-    Parse comma-separated, newline-separated, semicolon-separated,
-    or space-separated tickers into a unique uppercase list.
-    """
     if not raw_text or not raw_text.strip():
         return []
 
@@ -69,53 +56,51 @@ def parse_tickers(raw_text: str) -> list[str]:
     return tickers
 
 
-def get_sp500_tickers() -> list[str]:
+def get_sp500_tickers(use_live_fetch: bool = False) -> list[str]:
     """
-    Load the current S&P 500 constituent symbols from Wikipedia.
+    Return S&P 500 tickers.
 
-    Dot tickers are converted to Yahoo-style dash tickers:
-    - BRK.B -> BRK-B
-    - BF.B  -> BF-B
+    By default this uses a local baked-in list for reliability.
+    Set use_live_fetch=True if you want to attempt Wikipedia first.
     """
+    if not use_live_fetch:
+        return list(SP500_TICKERS)
+
     url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
 
     try:
         tables = pd.read_html(url)
-    except Exception as exc:
-        raise RuntimeError(f"Failed to load S&P 500 constituents: {exc}") from exc
+        if not tables:
+            return list(SP500_TICKERS)
 
-    if not tables:
-        raise RuntimeError("No tables were found on the S&P 500 constituents page.")
+        companies = tables[0]
+        if "Symbol" not in companies.columns:
+            return list(SP500_TICKERS)
 
-    companies = tables[0]
+        raw_tickers = (
+            companies["Symbol"]
+            .astype(str)
+            .str.strip()
+            .str.upper()
+            .tolist()
+        )
 
-    if "Symbol" not in companies.columns:
-        raise RuntimeError("Could not find the 'Symbol' column in the S&P 500 table.")
+        cleaned: list[str] = []
+        seen: set[str] = set()
 
-    raw_tickers = (
-        companies["Symbol"]
-        .astype(str)
-        .str.strip()
-        .str.upper()
-        .tolist()
-    )
+        for ticker in raw_tickers:
+            normalized = ticker.replace(".", "-")
+            if normalized and normalized not in seen:
+                seen.add(normalized)
+                cleaned.append(normalized)
 
-    cleaned: list[str] = []
-    seen: set[str] = set()
+        return cleaned if cleaned else list(SP500_TICKERS)
 
-    for ticker in raw_tickers:
-        normalized = ticker.replace(".", "-")
-        if normalized and normalized not in seen:
-            seen.add(normalized)
-            cleaned.append(normalized)
-
-    return cleaned
+    except Exception:
+        return list(SP500_TICKERS)
 
 
 def classify_analysis(result: AnalysisResult) -> str:
-    """
-    Convert the existing pipeline output into a screener bucket.
-    """
     trend_label = result.trend.label
     agreement_label = result.agreement.label
 
@@ -218,9 +203,6 @@ def run_market_screen(
     interval: str,
     benchmark: str = "SPY",
 ) -> ScreenResult:
-    """
-    Run the existing full analysis across a list of tickers.
-    """
     strong_bullish: list[ScreenedTicker] = []
     bullish: list[ScreenedTicker] = []
     strong_bearish: list[ScreenedTicker] = []
@@ -258,11 +240,8 @@ def run_market_screen(
 
     strong_bullish.sort(key=_bullish_sort_key, reverse=True)
     bullish.sort(key=_bullish_sort_key, reverse=True)
-
-    # Lower scores first for bearish buckets
     strong_bearish.sort(key=_bearish_sort_key)
     bearish.sort(key=_bearish_sort_key)
-
     mixed.sort(key=_bullish_sort_key, reverse=True)
 
     return ScreenResult(
