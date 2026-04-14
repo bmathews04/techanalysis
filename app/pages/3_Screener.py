@@ -20,6 +20,7 @@ from src.screener.screener import (
     get_sp500_tickers,
     parse_tickers,
     run_market_screen,
+    slice_ticker_batch,
 )
 
 st.set_page_config(
@@ -180,6 +181,28 @@ with st.sidebar:
             help="Used for relative strength comparison.",
         )
 
+        batch_size = st.selectbox(
+            "Batch size",
+            options=[25, 50, 75, 100],
+            index=3,
+            help="Smaller batches are slower overall but more reliable against Yahoo rate limits.",
+        )
+
+        batch_number = st.number_input(
+            "Batch number",
+            min_value=1,
+            value=1,
+            step=1,
+            help="Batch 1 screens the first chunk, batch 2 the next chunk, and so on.",
+        )
+
+        per_ticker_pause_seconds = st.selectbox(
+            "Pause per ticker (seconds)",
+            options=[0.25, 0.5, 0.75, 1.0],
+            index=1,
+            help="Higher pause reduces the chance of Yahoo rate limiting.",
+        )
+        
         submitted = st.form_submit_button(
             "Run screen",
             type="primary",
@@ -208,23 +231,38 @@ if not tickers:
     st.warning("No valid tickers were provided.")
     st.stop()
 
-MAX_TICKERS_PER_RUN = 100
+batch_tickers, start_idx, end_idx, total_tickers = slice_ticker_batch(
+    tickers=tickers,
+    batch_size=batch_size,
+    batch_number=int(batch_number),
+)
 
-if len(tickers) > MAX_TICKERS_PER_RUN:
+if not batch_tickers:
     st.warning(
-        f"You entered {len(tickers)} tickers. "
-        f"For reliability, this app currently screens the first {MAX_TICKERS_PER_RUN} per run."
+        f"Batch {int(batch_number)} is out of range. "
+        f"You only have {total_tickers} tickers with batch size {batch_size}."
     )
-    tickers = tickers[:MAX_TICKERS_PER_RUN]
+    st.stop()
+
+total_batches = (total_tickers + batch_size - 1) // batch_size
+
+if total_tickers > batch_size:
+    st.info(
+        f"Screening batch {int(batch_number)} of {total_batches}: "
+        f"tickers {start_idx + 1} to {end_idx} out of {total_tickers} total."
+    )
+
+tickers = batch_tickers
 
 with st.spinner(
-    f"Screening {len(tickers)} tickers... this can take a while and large runs may hit Yahoo rate limits."
+    f"Screening {len(tickers)} tickers... this can take a while and may hit Yahoo rate limits."
 ):
     screen_result = run_market_screen(
         tickers=tickers,
         period=period,
         interval=interval,
         benchmark=benchmark,
+        per_ticker_pause_seconds=float(per_ticker_pause_seconds),
     )
 
 top1, top2, top3, top4, top5 = st.columns(5)
@@ -238,6 +276,20 @@ with top4:
     st.metric("Strong bearish", len(screen_result.strong_bearish))
 with top5:
     st.metric("Bearish", len(screen_result.bearish))
+
+if total_tickers > batch_size:
+    prev_col, mid_col, next_col = st.columns(3)
+
+    with prev_col:
+        if int(batch_number) > 1:
+            st.caption(f"Previous batch: {int(batch_number) - 1}")
+
+    with mid_col:
+        st.caption(f"Current batch: {int(batch_number)} of {total_batches}")
+
+    with next_col:
+        if int(batch_number) < total_batches:
+            st.caption(f"Next batch: {int(batch_number) + 1}")
 
 st.divider()
 
