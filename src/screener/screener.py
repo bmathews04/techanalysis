@@ -1,16 +1,19 @@
 """
 Market screener utilities.
 
-Primary responsibility:
+Primary responsibilities:
+- parse ticker lists
+- fetch preset universes like the S&P 500
 - run the existing single-ticker pipeline across many tickers
 - classify each ticker into bullish / bearish buckets
-- return a clean result object for the Streamlit UI
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Iterable
+
+import pandas as pd
 
 from src.pipeline.build_analysis import AnalysisResult, build_full_analysis
 
@@ -41,28 +44,77 @@ class ScreenResult:
 
 def parse_tickers(raw_text: str) -> list[str]:
     """
-    Parse comma-separated, newline-separated, or space-separated tickers.
+    Parse comma-separated, newline-separated, semicolon-separated,
+    or space-separated tickers into a unique uppercase list.
     """
     if not raw_text or not raw_text.strip():
         return []
 
-    normalized = raw_text.replace(",", "\n").replace(";", "\n").replace("\t", "\n")
+    normalized = (
+        raw_text.replace(",", "\n")
+        .replace(";", "\n")
+        .replace("\t", "\n")
+    )
+
     tickers: list[str] = []
+    seen: set[str] = set()
 
     for line in normalized.splitlines():
         for token in line.strip().split():
             cleaned = token.strip().upper()
-            if cleaned and cleaned not in tickers:
+            if cleaned and cleaned not in seen:
+                seen.add(cleaned)
                 tickers.append(cleaned)
 
     return tickers
 
 
+def get_sp500_tickers() -> list[str]:
+    """
+    Load the current S&P 500 constituent symbols from Wikipedia.
+
+    Dot tickers are converted to Yahoo-style dash tickers:
+    - BRK.B -> BRK-B
+    - BF.B  -> BF-B
+    """
+    url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
+
+    try:
+        tables = pd.read_html(url)
+    except Exception as exc:
+        raise RuntimeError(f"Failed to load S&P 500 constituents: {exc}") from exc
+
+    if not tables:
+        raise RuntimeError("No tables were found on the S&P 500 constituents page.")
+
+    companies = tables[0]
+
+    if "Symbol" not in companies.columns:
+        raise RuntimeError("Could not find the 'Symbol' column in the S&P 500 table.")
+
+    raw_tickers = (
+        companies["Symbol"]
+        .astype(str)
+        .str.strip()
+        .str.upper()
+        .tolist()
+    )
+
+    cleaned: list[str] = []
+    seen: set[str] = set()
+
+    for ticker in raw_tickers:
+        normalized = ticker.replace(".", "-")
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            cleaned.append(normalized)
+
+    return cleaned
+
+
 def classify_analysis(result: AnalysisResult) -> str:
     """
     Convert the existing pipeline output into a screener bucket.
-
-    This keeps the screener aligned with the app's current rule system.
     """
     trend_label = result.trend.label
     agreement_label = result.agreement.label
@@ -122,6 +174,7 @@ def classify_analysis(result: AnalysisResult) -> str:
         return "Bearish"
     return "Mixed"
 
+
 def _to_screened_ticker(result: AnalysisResult) -> ScreenedTicker:
     classification = classify_analysis(result)
 
@@ -139,14 +192,23 @@ def _to_screened_ticker(result: AnalysisResult) -> ScreenedTicker:
     )
 
 
-def _sort_key(item: ScreenedTicker) -> tuple[int, int, int]:
-    """
-    Higher trend / momentum / structure names go first.
-    """
+def _bullish_sort_key(item: ScreenedTicker) -> tuple[int, int, int, int, int]:
     return (
         item.trend_score,
         item.momentum_score,
         item.structure_score,
+        item.volume_score,
+        item.volatility_score,
+    )
+
+
+def _bearish_sort_key(item: ScreenedTicker) -> tuple[int, int, int, int, int]:
+    return (
+        item.trend_score,
+        item.momentum_score,
+        item.structure_score,
+        item.volume_score,
+        item.volatility_score,
     )
 
 
@@ -194,17 +256,14 @@ def run_market_screen(
         except Exception as exc:
             skipped.append((ticker, str(exc)))
 
-    strong_bullish.sort(key=_sort_key, reverse=True)
-    bullish.sort(key=_sort_key, reverse=True)
+    strong_bullish.sort(key=_bullish_sort_key, reverse=True)
+    bullish.sort(key=_bullish_sort_key, reverse=True)
 
-    strong_bearish.sort(
-        key=lambda x: (x.trend_score, x.momentum_score, x.structure_score)
-    )
-    bearish.sort(
-        key=lambda x: (x.trend_score, x.momentum_score, x.structure_score)
-    )
+    # Lower scores first for bearish buckets
+    strong_bearish.sort(key=_bearish_sort_key)
+    bearish.sort(key=_bearish_sort_key)
 
-    mixed.sort(key=_sort_key, reverse=True)
+    mixed.sort(key=_bullish_sort_key, reverse=True)
 
     return ScreenResult(
         strong_bullish=strong_bullish,
