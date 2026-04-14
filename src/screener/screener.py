@@ -259,3 +259,31 @@ def run_market_screen(
         mixed=mixed,
         skipped=skipped,
     )
+
+def slice_ticker_batch(
+    tickers: list[str],
+    batch_size: int,
+    batch_number: int,
+) -> tuple[list[str], int, int, int]:
+    """
+    Return one batch of tickers plus batch metadata.
+
+    batch_number is 1-based.
+    """
+    if batch_size <= 0:
+        raise ValueError("batch_size must be greater than 0.")
+
+    if batch_number <= 0:
+        raise ValueError("batch_number must be greater than 0.")
+
+    total = len(tickers)
+    if total == 0:
+        return [], 0, 0, 0
+
+    start_idx = (batch_number - 1) * batch_size
+    end_idx = min(start_idx + batch_size, total)
+
+    if start_idx >= total:
+        return [], start_idx, end_idx, total
+
+    return tickers[start_idx:end_idx], start_idx, end_idx, total
