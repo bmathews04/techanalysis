@@ -4,6 +4,6 @@ from src.screener.screener import parse_tickers
 
 
 def test_parse_tickers_deduplicates_and_uppercases() -> None:
-    raw = "aapl, msft\nnvda AAPL\nspy"
+    raw = "aapl, msft\nnvda AAPL\nspy;qqq"
     parsed = parse_tickers(raw)
-    assert parsed == ["AAPL", "MSFT", "NVDA", "SPY"]
+    assert parsed == ["AAPL", "MSFT", "NVDA", "SPY", "QQQ"]
