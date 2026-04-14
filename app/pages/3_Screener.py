@@ -34,7 +34,7 @@ st.caption("Screen a custom list of tickers for strong bullish and strong bearis
 
 @st.cache_data(ttl=60 * 60 * 6, show_spinner=False)
 def load_sp500_tickers() -> list[str]:
-    return get_sp500_tickers()
+    return get_sp500_tickers(use_live_fetch=False)
 
 
 DEFAULT_WATCHLIST = """AAPL
@@ -152,11 +152,7 @@ with st.sidebar:
         index=0,
     )
 
-    try:
-        default_text = get_preset_text(preset)
-    except Exception as exc:
-        st.warning(f"Could not load preset '{preset}': {exc}")
-        default_text = DEFAULT_WATCHLIST
+    default_text = get_preset_text(preset)
 
     with st.form("screener_form"):
         tickers_raw = st.text_area(
@@ -187,7 +183,7 @@ with st.sidebar:
         submitted = st.form_submit_button(
             "Run screen",
             type="primary",
-            use_container_width=True,
+            width="stretch",
         )
 
 st.markdown(
@@ -244,14 +240,14 @@ with bull_tab:
     if strong_bullish_df.empty:
         st.info("No strong bullish tickers found in this run.")
     else:
-        st.dataframe(strong_bullish_df, use_container_width=True)
+        st.dataframe(strong_bullish_df, width="stretch")
 
     st.subheader("Bullish")
     bullish_df = to_dataframe(screen_result.bullish)
     if bullish_df.empty:
         st.info("No additional bullish tickers found in this run.")
     else:
-        st.dataframe(bullish_df, use_container_width=True)
+        st.dataframe(bullish_df, width="stretch")
 
 with bear_tab:
     st.subheader("Strong bearish")
@@ -259,14 +255,14 @@ with bear_tab:
     if strong_bearish_df.empty:
         st.info("No strong bearish tickers found in this run.")
     else:
-        st.dataframe(strong_bearish_df, use_container_width=True)
+        st.dataframe(strong_bearish_df, width="stretch")
 
     st.subheader("Bearish")
     bearish_df = to_dataframe(screen_result.bearish)
     if bearish_df.empty:
         st.info("No additional bearish tickers found in this run.")
     else:
-        st.dataframe(bearish_df, use_container_width=True)
+        st.dataframe(bearish_df, width="stretch")
 
 with all_tab:
     combined = (
@@ -281,7 +277,7 @@ with all_tab:
     if all_df.empty:
         st.info("No completed ticker analyses were returned.")
     else:
-        st.dataframe(all_df, use_container_width=True)
+        st.dataframe(all_df, width="stretch")
 
 with skipped_tab:
     st.subheader("Skipped tickers")
@@ -292,4 +288,4 @@ with skipped_tab:
             screen_result.skipped,
             columns=["Ticker", "Reason"],
         )
-        st.dataframe(skipped_df, use_container_width=True)
+        st.dataframe(skipped_df, width="stretch")
