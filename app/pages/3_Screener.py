@@ -208,7 +208,18 @@ if not tickers:
     st.warning("No valid tickers were provided.")
     st.stop()
 
-with st.spinner(f"Screening {len(tickers)} tickers..."):
+MAX_TICKERS_PER_RUN = 100
+
+if len(tickers) > MAX_TICKERS_PER_RUN:
+    st.warning(
+        f"You entered {len(tickers)} tickers. "
+        f"For reliability, this app currently screens the first {MAX_TICKERS_PER_RUN} per run."
+    )
+    tickers = tickers[:MAX_TICKERS_PER_RUN]
+
+with st.spinner(
+    f"Screening {len(tickers)} tickers... this can take a while and large runs may hit Yahoo rate limits."
+):
     screen_result = run_market_screen(
         tickers=tickers,
         period=period,
