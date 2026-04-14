@@ -287,3 +287,49 @@ def slice_ticker_batch(
         return [], start_idx, end_idx, total
 
     return tickers[start_idx:end_idx], start_idx, end_idx, total
+
+def merge_screen_results(results: list[ScreenResult]) -> ScreenResult:
+    """
+    Merge many batch-level ScreenResult objects into one combined result.
+    """
+    strong_bullish: list[ScreenedTicker] = []
+    bullish: list[ScreenedTicker] = []
+    strong_bearish: list[ScreenedTicker] = []
+    bearish: list[ScreenedTicker] = []
+    mixed: list[ScreenedTicker] = []
+    skipped: list[tuple[str, str]] = []
+
+    for result in results:
+        strong_bullish.extend(result.strong_bullish)
+        bullish.extend(result.bullish)
+        strong_bearish.extend(result.strong_bearish)
+        bearish.extend(result.bearish)
+        mixed.extend(result.mixed)
+        skipped.extend(result.skipped)
+
+    strong_bullish.sort(key=_bullish_sort_key, reverse=True)
+    bullish.sort(key=_bullish_sort_key, reverse=True)
+    strong_bearish.sort(key=_bearish_sort_key)
+    bearish.sort(key=_bearish_sort_key)
+    mixed.sort(key=_bullish_sort_key, reverse=True)
+
+    return ScreenResult(
+        strong_bullish=strong_bullish,
+        bullish=bullish,
+        strong_bearish=strong_bearish,
+        bearish=bearish,
+        mixed=mixed,
+        skipped=skipped,
+    )
+
+def split_into_batches(tickers: list[str], batch_size: int) -> list[list[str]]:
+    """
+    Split tickers into sequential batches.
+    """
+    if batch_size <= 0:
+        raise ValueError("batch_size must be greater than 0.")
+
+    return [
+        tickers[i:i + batch_size]
+        for i in range(0, len(tickers), batch_size)
+    ]
