@@ -68,8 +68,14 @@ def classify_analysis(result: AnalysisResult) -> str:
     agreement_label = result.agreement.label
 
     strong_bullish = (
-        trend_label == "Strong uptrend"
+        trend_label in {
+            "Strong uptrend",
+            "Healthy uptrend",
+            "Breakout / continuation attempt",
+        }
         and agreement_label == "Strong bullish agreement"
+        and result.scores.trend >= 70
+        and result.scores.momentum >= 60
     )
 
     bullish = (
@@ -91,6 +97,8 @@ def classify_analysis(result: AnalysisResult) -> str:
             "Breakdown / continuation attempt",
         }
         and agreement_label == "Strong bearish agreement"
+        and result.scores.trend <= 35
+        and result.scores.momentum <= 40
     )
 
     bearish = (
@@ -113,7 +121,6 @@ def classify_analysis(result: AnalysisResult) -> str:
     if bearish:
         return "Bearish"
     return "Mixed"
-
 
 def _to_screened_ticker(result: AnalysisResult) -> ScreenedTicker:
     classification = classify_analysis(result)
