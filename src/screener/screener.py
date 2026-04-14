@@ -202,7 +202,15 @@ def run_market_screen(
     period: str,
     interval: str,
     benchmark: str = "SPY",
+    per_ticker_pause_seconds: float = 0.35,
 ) -> ScreenResult:
+    """
+    Run the existing full analysis across a list of tickers.
+    """
+    import time
+
+    ticker_list = [t.strip().upper() for t in tickers if str(t).strip()]
+
     strong_bullish: list[ScreenedTicker] = []
     bullish: list[ScreenedTicker] = []
     strong_bearish: list[ScreenedTicker] = []
@@ -210,11 +218,7 @@ def run_market_screen(
     mixed: list[ScreenedTicker] = []
     skipped: list[tuple[str, str]] = []
 
-    for raw_ticker in tickers:
-        ticker = raw_ticker.strip().upper()
-        if not ticker:
-            continue
-
+    for idx, ticker in enumerate(ticker_list):
         try:
             result = build_full_analysis(
                 ticker=ticker,
@@ -237,6 +241,9 @@ def run_market_screen(
 
         except Exception as exc:
             skipped.append((ticker, str(exc)))
+
+        if per_ticker_pause_seconds > 0 and idx < len(ticker_list) - 1:
+            time.sleep(per_ticker_pause_seconds)
 
     strong_bullish.sort(key=_bullish_sort_key, reverse=True)
     bullish.sort(key=_bullish_sort_key, reverse=True)
