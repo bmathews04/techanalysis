@@ -13,7 +13,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import pandas as pd
-import yfinance as yf
 
 
 @dataclass(frozen=True)
@@ -50,31 +49,15 @@ def fetch_ohlcv(
 ) -> FetchResult:
     """
     Fetch OHLCV data from Yahoo Finance via yfinance.
-
-    Parameters
-    ----------
-    ticker : str
-        The ticker symbol to fetch.
-    period : str
-        Period supported by yfinance, e.g. '1y', '6mo', '5y'.
-    interval : str
-        Interval supported by yfinance, e.g. '1d', '1wk'.
-    auto_adjust : bool
-        Whether to automatically adjust OHLC prices for splits/dividends.
-
-    Returns
-    -------
-    FetchResult
-        A dataclass containing the cleaned ticker, request params, and raw data.
-
-    Raises
-    ------
-    ValueError
-        If no data is returned.
-    RuntimeError
-        If yfinance fails unexpectedly.
     """
     cleaned_ticker = clean_ticker(ticker)
+
+    try:
+        import yfinance as yf
+    except Exception as exc:  # pragma: no cover
+        raise RuntimeError(
+            "yfinance is required to fetch market data. Install it from requirements.txt."
+        ) from exc
 
     try:
         df = yf.download(
